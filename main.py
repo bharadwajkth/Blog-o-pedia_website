@@ -48,6 +48,7 @@ MY_PASSWORD = os.environ.get("MY_SECRET_PASSWORD")
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USE_SSL'] = False
 app.config['MAIL_USERNAME'] = MY_EMAIL # Replace with your email
 app.config['MAIL_PASSWORD'] = MY_PASSWORD
 ckeditor = CKEditor(app)
@@ -227,6 +228,9 @@ def login():
             return redirect(url_for('login'))
         elif not check_password_hash(user.password, password):
             flash('Password incorrect, please try again.')
+            return redirect(url_for('login'))
+        elif not user.is_verified:
+            flash('Please verify your email before logging in. Check your inbox for the verification link.', 'warning')
             return redirect(url_for('login'))
         else:
             login_user(user)
