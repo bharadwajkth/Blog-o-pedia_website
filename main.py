@@ -13,7 +13,7 @@ from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 import smtplib
 # Import your forms from the forms.py
-from forms import CreatePostForm, RegisterForm, LoginForm, CommentForm, ContactForm
+from forms import CreatePostForm, RegisterForm, LoginForm, CommentForm, ContactForm, ForgotPasswordForm, ResetPasswordForm
 import os
 from dotenv import load_dotenv
 import re
@@ -49,7 +49,7 @@ app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USE_SSL'] = False
-app.config['MAIL_USERNAME'] = MY_EMAIL # Replace with your email
+app.config['MAIL_USERNAME'] = MY_EMAIL  # Replace with your email
 app.config['MAIL_PASSWORD'] = MY_PASSWORD
 ckeditor = CKEditor(app)
 Bootstrap5(app)
@@ -131,6 +131,20 @@ class User(UserMixin, db.Model):
             return None
         return User.query.get(user_id)
 
+    def get_reset_token(self):
+        s = Serializer(app.config['SECRET_KEY'])
+        token = s.dumps({'user_id': self.id})
+        return token
+
+    @staticmethod
+    def verify_reset_token(token, expires_sec=1800):
+        s = Serializer(app.config['SECRET_KEY'])
+        try:
+            user_id = s.loads(token, max_age=expires_sec)['user_id']
+        except (SignatureExpired, BadSignature):
+            return None
+        return User.query.get(user_id)
+
 
 class Comment(db.Model):
     __tablename__ = "comments"
@@ -167,7 +181,6 @@ def send_verification_email(user):
         print("Verification email sent successfully!")
     except Exception as e:
         print(f"Error sending email: {e}")
-
 
 
 # Decorator
@@ -249,6 +262,73 @@ def verify_email(token):
     db.session.commit()
     flash('Your account has been verified! You can now log in.', 'success')
     return redirect(url_for('login'))
+
+
+@app.route('/forgot_password', methods=["GET", "POST"])
+def forgot_password():
+    form = ForgotPasswordForm()
+    if form.validate_on_submit():
+        email = form.email.data
+        user = User.query.filter_by(email=email).first()
+        if user:
+            # Generate reset token
+            token = user.get_reset_token()
+
+            # Send reset email
+            send_reset_email(user, token)
+
+            flash('A mail has been sent with instructions to reset your password.', 'info')
+            return redirect(url_for('login'))
+        else:
+            flash('Email not found, please check and try again.', 'danger')
+            return redirect(url_for('login'))
+
+    return render_template('forgot_password.html', form=form)
+
+
+def send_reset_email(user, token):
+
+    reset_link = url_for('reset_password', token=token, _external=True)
+    subject = 'Password Reset request'
+    body = f'''To reset your password, visit the following link:
+    {reset_link}
+
+    If you did not request this, simply ignore this email and no changes will be made.
+    '''
+
+    msg = MIMEMultipart()
+    msg['From'] = MY_EMAIL
+    msg['To'] = user.email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(MY_EMAIL, MY_PASSWORD)
+            server.sendmail(MY_EMAIL, user.email, msg.as_string())
+    except Exception as e:
+        print(f"Error sending email: {e}")
+
+
+@app.route('/reset_password/<token>', methods=["GET", "POST"])
+def reset_password(token):
+    user = User.verify_reset_token(token)
+    if not user:
+        flash('That is an invalid or expired token', 'danger')
+        return redirect(url_for('forgot_password'))
+
+    form = ResetPasswordForm()
+    if form.validate_on_submit():
+        # Hash the new password and update it
+        hashed_password = generate_password_hash(form.password.data, method='pbkdf2:sha256', salt_length=8)
+        user.password = hashed_password
+        db.session.commit()
+
+        flash('Your password has been updated! You can now log in.', 'success')
+        return redirect(url_for('login'))
+
+    return render_template('reset_password.html', form=form)
 
 
 @app.route('/logout')

@@ -32,6 +32,9 @@ include "header.html" %}
         <!--TODO: render login form here-->
         {{render_form(form, novalidate=True, button_map={"submit": "primary"})
         }}
+        <div class="text-center mt-2">
+          <a href="{{ url_for('forgot_password') }}">Forgot your password?</a>
+        </div>
       </div>
     </div>
   </div>
